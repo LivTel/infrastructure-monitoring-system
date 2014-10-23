@@ -3,7 +3,7 @@ import java.io.Serializable;
 
 import ngat.net.telemetry.StatusCategory;
 
-public class DiskStatus extends Serializable implements  StatusCategory 
+public class DiskStatus implements Serializable, StatusCategory 
 {
 	/**
 	 * A timestamp (milliseconds since the epoch (1st Jan 1970))
@@ -72,7 +72,7 @@ public class DiskStatus extends Serializable implements  StatusCategory
      * @return The timestamp for this status.
      * @see #timeStamp
      */ 
-    public long getTimeStamp()
+    public long getStatusTimeStamp()
     {
     	return timeStamp;
     }
@@ -173,7 +173,7 @@ public class DiskStatus extends Serializable implements  StatusCategory
      * @see #diskPercentUsed
      * @see #diskFreeSpace
      */
-    public toString()
+    public String toString()
     {
     		return new String("DISK:"+machineName+":"+diskName+":"+diskPercentUsed+
     				"% used:"+diskFreeSpace+"Kb free space.");

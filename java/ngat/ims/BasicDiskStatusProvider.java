@@ -3,6 +3,7 @@ package ngat.ims;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.FileInputStream;
 import java.net.URL;
 import java.net.URLConnection;
 import java.rmi.RemoteException;
@@ -18,6 +19,7 @@ import java.util.Vector;
 import ngat.ems.CloudStatus;
 import ngat.ems.MeteorologyStatus;
 import ngat.ems.MeteorologyStatusUpdateListener;
+import ngat.ims.DiskStatus;
 import ngat.net.cil.CilService;
 import ngat.net.cil.tcs.CollatorResponseListener;
 import ngat.net.cil.tcs.TcsStatusPacket;
@@ -123,18 +125,21 @@ public class BasicDiskStatusProvider extends UnicastRemoteObject
 			}
 		}
 	}
-
-	public void startMonitoringThread(URL propertiesURL)
+	/**
+	 * Method to start a thread to monitor the disk status data file, end generate 
+	 * updates to appropriate registered listeners.
+	 * @param propertiesURL The URL of a properties file containing configuration data
+	 *        for the thread.
+	 * @exception Exception Thrown if the configure method fails.
+	 * @see DiskStatusMonitorThread
+	 * @see DiskStatusMonitorThread#configure
+	 */
+	public void startMonitoringThread(URL propertiesURL) throws Exception
 	{
-		FileInputStream fis = null;
-		Properties properties = null;
 		DiskStatusMonitorThread dsmt = null;
 
-		properties = new Properties();
-		fis = new FileInputStream(propertiesURL);
-		properties.load(fis);
 		dsmt = new DiskStatusMonitorThread();
-		dsmt.setURL(properties.getProperty("disk.status.url"));
+		dsmt.configure(propertiesURL);
 		dsmt.start();
 	}
 	
@@ -143,7 +148,7 @@ public class BasicDiskStatusProvider extends UnicastRemoteObject
 	 * polls the data file written by the cronjob.
 	 * @author Chris Mottram
 	 */
-	protected class DiskStatusMonitorThread
+	protected class DiskStatusMonitorThread extends Thread
 	{
 		/** 
 		 * Polling interval in milliseconds. 
@@ -153,8 +158,90 @@ public class BasicDiskStatusProvider extends UnicastRemoteObject
 		 * The location of the data file to poll.
 		 */
 		protected URL url = null;
-		SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss");
-		SimpleTimeZone UTC = new SimpleTimeZone(0, "UTC");
+		/**
+		 * Date format used for parsing the timestamp.
+		 */
+		protected SimpleDateFormat sdf = null;
+		/**
+		 * Timezone used for parsing the timestamp.
+		 */
+		protected SimpleTimeZone UTC = null;
+		/**
+		 * An ordered list of machine name:disk name combinations,
+		 * the data for which is in the data file. The list is a list of
+		 * DiskStatus objects, but only the machineName and diskName fields
+		 * are filled in.
+		 */
+		protected Vector<DiskStatus> diskList = null;
+		/**
+		 * Default constructor.
+		 */
+		protected DiskStatusMonitorThread()
+		{
+			super();
+		}
+		
+		/**
+		 * Configure the thread (before starting it) from the supplied
+		 * properties file.
+		 * <ul>
+		 * <li>The data file URL is read from the "disk.status.url" property.
+		 * <li>The polling interval is read from the "disk.status.polling_interval" property.
+		 * <li>The time format is read from the "disk.status.time.format" property.
+		 * <li>A UTC timezone is created.
+		 * <li>The number of machine:disk combinations to read is read from the "disk.status.count" property.
+		 * <li>We loop over the number of machine:disk combinations:
+		 *     <ul>
+		 *     <li>A machine name is retrieved from the property: "disk.status.machine_name."+i
+		 *     <li>A disk name is retrieved from the property: "disk.status.disk_name."+i
+		 *     <li>An instance of DiskStatus is created and added to the diskList.
+		 *     </ul>
+		 * </ul>
+		 * @param propertiesURL A URL pointing to a properties file containing
+		 *        the configuration for the thread.
+		 * @throws Exception Thrown if an error occurs.
+		 * @see #diskList
+		 * @see #url
+		 * @see #pollingInterval
+		 * @see #sdf
+		 * @see #UTC
+		 */
+		protected void configure(URL propertiesURL) throws Exception
+		{
+			DiskStatus diskStatus = null;
+			/**
+			 * Properties containing the configuration for this thread.
+			 */
+			Properties properties = null;
+			String timeFormatString = null;
+			String machineName = null;
+			String diskName = null;
+			int count;
+			
+			// load properties from propertiesURL
+			properties = new Properties();
+			properties.load(propertiesURL.openConnection().getInputStream());
+			// get data URL
+			url = new URL(properties.getProperty("disk.status.url"));
+			// polling interval
+			pollingInterval = Long.parseLong(properties.getProperty("disk.status.polling_interval"));
+			// configure timezone
+			timeFormatString = properties.getProperty("disk.status.time.format");
+			sdf = new SimpleDateFormat(timeFormatString);
+			UTC = new SimpleTimeZone(0, "UTC");
+			// load list of machine:disks to parse
+			count = Integer.parseInt(properties.getProperty("disk.status.count"));
+			diskList = new Vector<DiskStatus>();
+			for(int i = 0; i < count; i++)
+			{
+				machineName = properties.getProperty("disk.status.machine_name."+i);
+				diskName = properties.getProperty("disk.status.disk_name."+i);
+				diskStatus = new DiskStatus();
+				diskStatus.setMachineName(machineName);
+				diskStatus.setDiskName(diskName);
+				diskList.add(diskStatus);
+			}
+		}
 		
 		public void setURL(URL u)
 		{
@@ -178,6 +265,10 @@ public class BasicDiskStatusProvider extends UnicastRemoteObject
 		 * </ul>
 		 * @see #pollingInterval
 		 * @see #url
+		 * @see #sdf
+		 * @see #diskList
+		 * @see BasicDiskStatusProvider#logger
+		 * @see BasicDiskStatusProvider#notifyListeners
 		 */
 		public void run()
 		{
@@ -188,6 +279,7 @@ public class BasicDiskStatusProvider extends UnicastRemoteObject
 			
 			while (true) 
 			{
+				// wait a bit before reading the file
 				try 
 				{
 					Thread.sleep(pollingInterval);
@@ -199,7 +291,7 @@ public class BasicDiskStatusProvider extends UnicastRemoteObject
 
 				try 
 				{
-
+					// Open the data file
 					URLConnection uc = url.openConnection();
 
 					uc.setDoInput(true);
@@ -207,42 +299,39 @@ public class BasicDiskStatusProvider extends UnicastRemoteObject
 
 					InputStream in = uc.getInputStream();
 					BufferedReader din = new BufferedReader(new InputStreamReader(in));
-
+					// read the current data from the file.
 					String line = din.readLine();
 					logger.create().info().level(4).extractCallInfo().msg("Read Disk Status Line:" + line).send();
-
-					StringTokenizer st = new StringTokenizer(line);
-
+					// close the file
 					try 
 					{
 						in.close();
 						din.close();
 						uc = null;
-						
 					} 
 					catch (Exception e) 
 					{
 						logger.create().info().level(4).extractCallInfo().msg("DISK: WARNING: Failed to close URL input stream: " + e).send();
 					}
-					// date stamp
+					// create a tokenizer to parse the read string
+					StringTokenizer st = new StringTokenizer(line);
+					// parse the date stamp
 					String stime = st.nextToken();
 					timeStamp = sdf.parse(stime).getTime();
-					// occ:/
-					freeSpace = Long.parseLong(st.nextToken());
-					percentUsed = Double.parseDouble(st.nextToken());
-					diskStatus = new DiskStatus();
-					diskStatus.setStatusTimeStamp(timeStamp);
-					diskStatus.setMachineName("occ");
-					diskStatus.setDiskName("/")
-					diskStatus.setDiskPercentUsed(percentUsed);
-					diskStatus.setDiskFreeSpace(freeSpace);
-					logger.create().info().level(4).extractCallInfo().msg("DISK: Sending listeners:" + diskStatus).send();
-					notifyListeners(diskStatus);
-					// ltnas2:/mnt/archive2
-					// rise:/mnt/rise-image
-					// ringo3-1:/mnt/ringo3-1-image
-					// ringo3-2:/mnt/ringo3-2-image
-					// autoguider1:/mnt/autoguider-image
+					// interate over the list of machine:disk's to read data for.
+					for(int index = 0; index < diskList.size(); index ++)
+					{
+						freeSpace = Long.parseLong(st.nextToken());
+						percentUsed = Double.parseDouble(st.nextToken());
+						diskStatus = new DiskStatus();
+						diskStatus.setStatusTimeStamp(timeStamp);
+						diskStatus.setMachineName(diskList.get(index).getMachineName());
+						diskStatus.setDiskName(diskList.get(index).getDiskName());
+						diskStatus.setDiskPercentUsed(percentUsed);
+						diskStatus.setDiskFreeSpace(freeSpace);
+						logger.create().info().level(4).extractCallInfo().msg("DISK: Sending listeners:" + diskStatus).send();
+						notifyListeners(diskStatus);
+					}// end for
 				} 
 				catch (Exception e) 
 				{

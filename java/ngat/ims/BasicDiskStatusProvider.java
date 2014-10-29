@@ -138,9 +138,13 @@ public class BasicDiskStatusProvider extends UnicastRemoteObject
 	{
 		DiskStatusMonitorThread dsmt = null;
 
+		logger.create().info().level(3).extractCallInfo().msg("Creating disk status monitoring thread.").send();
 		dsmt = new DiskStatusMonitorThread();
+		logger.create().info().level(3).extractCallInfo().msg("Configuring disk status monitoring thread from:"+propertiesURL).send();
 		dsmt.configure(propertiesURL);
+		logger.create().info().level(3).extractCallInfo().msg("Starting disk status monitoring thread.").send();
 		dsmt.start();
+		logger.create().info().level(3).extractCallInfo().msg("Disk status monitoring thread started.").send();
 	}
 	
 	/**
@@ -218,11 +222,14 @@ public class BasicDiskStatusProvider extends UnicastRemoteObject
 			String diskName = null;
 			int count;
 			
+			logger.create().info().level(3).extractCallInfo().msg("Loading properties:"+propertiesURL).send();
 			// load properties from propertiesURL
 			properties = new Properties();
 			properties.load(propertiesURL.openConnection().getInputStream());
 			// get data URL
+			logger.create().info().level(3).extractCallInfo().msg("Loading disk status URL.").send();
 			url = new URL(properties.getProperty("disk.status.url"));
+			logger.create().info().level(3).extractCallInfo().msg("Disk status URL is:"+url).send();
 			// polling interval
 			pollingInterval = Long.parseLong(properties.getProperty("disk.status.polling_interval"));
 			// configure timezone
@@ -231,6 +238,7 @@ public class BasicDiskStatusProvider extends UnicastRemoteObject
 			UTC = new SimpleTimeZone(0, "UTC");
 			// load list of machine:disks to parse
 			count = Integer.parseInt(properties.getProperty("disk.status.count"));
+			logger.create().info().level(3).extractCallInfo().msg("Status count is:"+count).send();
 			diskList = new Vector<DiskStatus>();
 			for(int i = 0; i < count; i++)
 			{
@@ -239,8 +247,10 @@ public class BasicDiskStatusProvider extends UnicastRemoteObject
 				diskStatus = new DiskStatus();
 				diskStatus.setMachineName(machineName);
 				diskStatus.setDiskName(diskName);
+				logger.create().info().level(3).extractCallInfo().msg("Adding disk status ("+machineName+":"+diskName+") to list.").send();
 				diskList.add(diskStatus);
 			}
+			logger.create().info().level(3).extractCallInfo().msg("Finished configure.").send();
 		}
 		
 		public void setURL(URL u)
@@ -277,8 +287,10 @@ public class BasicDiskStatusProvider extends UnicastRemoteObject
 			int nstat = 0; // count requests
 			DiskStatus diskStatus = null;
 			
+			logger.create().info().level(3).extractCallInfo().msg("Starting thread.").send();
 			while (true) 
 			{
+				logger.create().info().level(3).extractCallInfo().msg("Sleeping for:"+pollingInterval).send();
 				// wait a bit before reading the file
 				try 
 				{
@@ -291,17 +303,20 @@ public class BasicDiskStatusProvider extends UnicastRemoteObject
 
 				try 
 				{
+					logger.create().info().level(3).extractCallInfo().msg("Opening connection.").send();
 					// Open the data file
 					URLConnection uc = url.openConnection();
 
 					uc.setDoInput(true);
 					uc.setAllowUserInteraction(false);
 
+					logger.create().info().level(3).extractCallInfo().msg("Creating input stream.").send();
 					InputStream in = uc.getInputStream();
 					BufferedReader din = new BufferedReader(new InputStreamReader(in));
 					// read the current data from the file.
+					logger.create().info().level(3).extractCallInfo().msg("Reading disk status line.").send();
 					String line = din.readLine();
-					logger.create().info().level(4).extractCallInfo().msg("Read Disk Status Line:" + line).send();
+					logger.create().info().level(3).extractCallInfo().msg("Read Disk Status Line:" + line).send();
 					// close the file
 					try 
 					{
@@ -311,16 +326,20 @@ public class BasicDiskStatusProvider extends UnicastRemoteObject
 					} 
 					catch (Exception e) 
 					{
-						logger.create().info().level(4).extractCallInfo().msg("DISK: WARNING: Failed to close URL input stream: " + e).send();
+						logger.create().info().level(1).extractCallInfo().msg("DISK: WARNING: Failed to close URL input stream: " + e).send();
 					}
+					logger.create().info().level(3).extractCallInfo().msg("Parsing disk status line.").send();
 					// create a tokenizer to parse the read string
 					StringTokenizer st = new StringTokenizer(line);
 					// parse the date stamp
 					String stime = st.nextToken();
 					timeStamp = sdf.parse(stime).getTime();
+					logger.create().info().level(3).extractCallInfo().msg("Parsed timestamp:"+timeStamp).send();
 					// interate over the list of machine:disk's to read data for.
 					for(int index = 0; index < diskList.size(); index ++)
 					{
+						logger.create().info().level(3).extractCallInfo().msg("Parsing disk status for:"+
+					          (diskList.get(index).getMachineName())+":"+(diskList.get(index).getDiskName())).send();
 						freeSpace = Long.parseLong(st.nextToken());
 						percentUsed = Double.parseDouble(st.nextToken());
 						diskStatus = new DiskStatus();
@@ -329,13 +348,13 @@ public class BasicDiskStatusProvider extends UnicastRemoteObject
 						diskStatus.setDiskName(diskList.get(index).getDiskName());
 						diskStatus.setDiskPercentUsed(percentUsed);
 						diskStatus.setDiskFreeSpace(freeSpace);
-						logger.create().info().level(4).extractCallInfo().msg("DISK: Sending listeners:" + diskStatus).send();
+						logger.create().info().level(3).extractCallInfo().msg("DISK: Sending listeners:" + diskStatus).send();
 						notifyListeners(diskStatus);
 					}// end for
 				} 
 				catch (Exception e) 
 				{
-					logger.create().info().level(4).extractCallInfo().msg("DISK: Error:" + e).send();
+					logger.create().info().level(1).extractCallInfo().msg("DISK: Error:" + e).send();
 				}
 			} // next sample
 		} // run

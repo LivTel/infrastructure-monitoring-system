@@ -1,0 +1,183 @@
+#!/bin/csh
+#
+#
+# get_system_gosubs.cron
+#
+#
+# SNF (2014-05-27)
+# Changed to reflect current set of disks in ue.
+#
+# RJS (2006-03-04)
+# This is a fairly complicated script which uses subroutines to run through
+# all the instruments checking their disk space and writing it into the
+# file Steve uses to send back system status to TQH.
+# I have attempted to make it fairly robust, but I'm sure it will fall
+# apart under some circumstances. 
+#
+#
+# $Log: get_system_gosubs.cron,v $
+# Revision 1.2  2010/04/21 13:41:47  eng
+# Added Global Logging System (GLS) logging using C API binary "ltlog",
+# developed by CJM. Note that the presence of the binary is not
+# considered critical to the running of this script. If the binary is
+# not found, this script should carry on anyway. (JMM)
+#
+
+
+# ----------------------------- #
+# CHECK GLS LTLOG BINARY EXISTS #
+# ----------------------------- #
+set LTLOG = /usr/local/bin/ltlog
+if ( -f $LTLOG ) then
+    set LTLOG_EXISTS = 1
+else
+    set LTLOG_EXISTS = 0
+endif
+
+
+# ------------- #
+# START LOGGING #
+# ------------- #
+if ($LTLOG_EXISTS) $LTLOG -hostname ltproxy -p 2371 -info -v 1 -system systemstatus -sub_system diskspace -source_file get_system_gosubs.cron -m Starting disk space checking script.
+
+
+# --------------------------------
+# Data Generator for: System data.
+# --------------------------------
+set DEPLOY_DATA = $DEPLOY_HOME/data
+ 
+set data = $DEPLOY_DATA/system.data
+touch $data
+
+#Create the output file. Initally it contains nothing but a timestamp
+set time  = `date -u "+%Y-%m-%dT%H:%M:%S"`
+echo $time >&! $data
+
+# Start with occ itself
+df -k > /occ/tmp/disk.status
+set machine = occ
+set raw_df_file = /occ/tmp/disk.status
+set disk_to_check = /
+goto parse_subroutine
+end_occ:
+
+# Big disk. Currently the NAS, but could change
+#set machine = nas2
+#set raw_df_file = /occ/tmp/disk.status
+#set disk_to_check = /mnt/archive2
+#goto parse_subroutine
+#end_nas2:
+set machine = nas2
+set raw_df_file = /occ/tmp/disk.status
+set disk_to_check = /mnt/nas-data
+goto parse_subroutine
+end_nas2:
+
+
+#Rise 
+set machine = rise
+set raw_df_file = /occ/tmp/disk.status
+set disk_to_check = /mnt/rise-image
+goto parse_subroutine
+end_rise:
+
+#Ringo3-1 
+set machine = ringo3-1
+set raw_df_file = /occ/tmp/disk.status
+set disk_to_check = /mnt/ringo3-1-image
+goto parse_subroutine
+end_ringo3-1:
+
+#Ringo3-2
+set machine = ringo3-2
+set raw_df_file = /occ/tmp/disk.status 
+set disk_to_check = /mnt/ringo3-2-image
+goto parse_subroutine
+end_ringo3-2:
+
+#Autoguider1
+set machine = autoguider1
+set raw_df_file = /occ/tmp/disk.status
+set disk_to_check = /mnt/autoguider-image
+goto parse_subroutine
+end_autoguider1:
+
+#moptop1
+set machine = moptop1
+set raw_df_file = /occ/tmp/disk.status
+set disk_to_check = /mnt/moptop-image/1
+goto parse_subroutine
+end_moptop1:
+
+#moptop2
+set machine = moptop2
+set raw_df_file = /occ/tmp/disk.status
+set disk_to_check = /mnt/moptop-image/2
+goto parse_subroutine
+end_moptop2:
+
+
+#Uncomment this line to write the final answer to STDOUT. We don't want this
+# in normal ryday ops
+#cat $data 
+
+if ($LTLOG_EXISTS) $LTLOG -hostname ltproxy -p 2371 -info -v 1 -system systemstatus -sub_system diskspace -source_file get_system_gosubs.cron -m Disk space checking script finished.
+
+exit 0
+
+
+
+# This subroutine does various checks on the df output and formats the data for 
+# appending into $data. It is done as a subroutine because we do the same thing on
+# many df files from different machines.
+# So far all the machines we are checking have written df output in the same column
+# order, but if that changes in teh future, we either need separate parseing routines
+# or this one needs to be made more complicated. That could be done, for example, by
+# reading the column headers in the df output.
+parse_subroutine:
+set errct = 0
+# Make sure file to parse exists and if so, increment the err state counter
+if (-e $raw_df_file) then
+  @ errct++
+  set timenow = `date +%s`
+  set timefile = `date -r $raw_df_file +%s`
+  @ diff = $timenow - $timefile 
+  # Make sure file is less than an hour old and if so, increment the err state counter
+  if ($diff < 3600) then
+    @ errct++
+  endif
+  # Can here do some checks on file contents to verify formatting etc if required
+endif
+if ($errct == 2) then
+  # This does the actual value extraction from the raw df file and keep only 0123456789 chars
+  set avail =   `cat $raw_df_file | grep $disk_to_check'$' | awk '{print $(NF-2)}' | sed 's/[^0-9]//g' `
+  set percent = `cat $raw_df_file | grep $disk_to_check'$' | awk '{print $(NF-1)}' | sed 's/[^0-9]//g' `
+  if ( "$avail" == "" ) set avail = 0
+  if ( "$percent" == "" ) set percent = 0
+else
+  # Set dummy values if there was a problem anywhere
+  set avail = 0
+  set percent = 0
+endif
+#Append the two new values to the end of $data
+#First create a temp file and then overwite $data with it
+if (-e $data) then
+  awk '{printf ("%s %d %d\n",$0,'$avail','$percent')}' $data > /tmp/datatmp
+else
+  echo "Missing file $data"
+endif
+if (-e /tmp/datatmp) then 
+  mv /tmp/datatmp $data
+else
+  echo "Missing file /tmp/datatmp"
+endif
+
+
+# Write details to GLS
+if ($LTLOG_EXISTS) $LTLOG -hostname ltproxy -p 2371 -info -v 2 -system systemstatus -sub_system diskspace -source_file get_system_gosubs.cron -m $machine $avail $percent
+
+# Return
+goto end_$machine
+
+
+

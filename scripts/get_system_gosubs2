@@ -1,8 +1,6 @@
 #!/bin/csh
 #
-#
 # get_system_gosubs.cron
-#
 #
 # SNF (2014-05-27)
 # Changed to reflect current set of disks in ue.
@@ -103,18 +101,39 @@ goto parse_subroutine
 end_autoguider1:
 
 #moptop1
-set machine = moptop1
-set raw_df_file = /occ/tmp/disk.status
-set disk_to_check = /mnt/moptop-image/1
-goto parse_subroutine
-end_moptop1:
-
+#set machine = moptop1
+#set raw_df_file = /occ/tmp/disk.status
+#set disk_to_check = /mnt/moptop-image/1
+#goto parse_subroutine
+#end_moptop1:
+#
 #moptop2
-set machine = moptop2
+#set machine = moptop2
+#set raw_df_file = /occ/tmp/disk.status
+#set disk_to_check = /mnt/moptop-image/2
+#goto parse_subroutine
+#end_moptop2:
+
+#moptop3
+set machine = moptop3
 set raw_df_file = /occ/tmp/disk.status
-set disk_to_check = /mnt/moptop-image/2
+set disk_to_check = /mnt/moptop-image/3
 goto parse_subroutine
-end_moptop2:
+end_moptop3:
+
+#moptop4
+set machine = moptop4
+set raw_df_file = /occ/tmp/disk.status
+set disk_to_check = /mnt/moptop-image/4
+goto parse_subroutine
+end_moptop4:
+
+set machine = moptopnas
+set raw_df_file = /occ/tmp/disk.status
+set disk_to_check = /mnt/moptopnas
+goto parse_subroutine
+end_moptopnas:
+
 
 
 #Uncomment this line to write the final answer to STDOUT. We don't want this

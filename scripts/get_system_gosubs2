@@ -134,6 +134,12 @@ set disk_to_check = /mnt/moptopnas
 goto parse_subroutine
 end_moptopnas:
 
+#IO:O / o1
+set machine = o1
+set raw_df_file = /occ/tmp/disk.status
+set disk_to_check = /mnt/o-image
+goto parse_subroutine
+end_o1:
 
 
 #Uncomment this line to write the final answer to STDOUT. We don't want this
